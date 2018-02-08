@@ -1,4 +1,4 @@
-# sslhash
+# sslhash [![Crates.io](https://img.shields.io/crates/v/sslhash.svg)]()
 
 SSL without a certificate authority.
 
