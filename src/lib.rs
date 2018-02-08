@@ -17,7 +17,8 @@ use std::path::PathBuf;
 
 const RSA_BITS: u32 = 3072;
 
-pub fn hash(data: &[u8]) -> String {
+/// Create a string SHA-256 hash from binary data.
+pub fn sha256(data: &[u8]) -> String {
     use std::fmt::Write;
     let hash = sha::sha256(data);
 
@@ -44,10 +45,11 @@ impl From<IoError> for AcceptorError {
     fn from(err: IoError) -> Self { AcceptorError::IoError(err) }
 }
 
-pub enum CacheDir {
+enum CacheDir {
     ExeDir,
     Path(PathBuf)
 }
+/// Build an SslAcceptor with a generated (and by default cached) key
 pub struct AcceptorBuilder {
     bits: u32,
     cache_dir: Option<CacheDir>
@@ -61,15 +63,18 @@ impl Default for AcceptorBuilder {
     }
 }
 impl AcceptorBuilder {
+    /// Set the number of RSA key bits. Default: 3072
     pub fn set_bits(mut self, bits: u32) -> Self {
         self.bits = bits;
         self
     }
+    /// Set the cache directory or disable caching. Default is the same directory as the EXE.
     pub fn set_cache_dir(mut self, cache_dir: Option<PathBuf>) -> Self {
         self.cache_dir = cache_dir.map(CacheDir::Path);
         self
     }
-    pub fn build_pkey(self) -> Result<PKey<Private>, AcceptorError> {
+    /// Build a random PKey object as well as a hash of the public key
+    pub fn build_pkey(self) -> Result<(PKey<Private>, String), AcceptorError> {
         // Resolve cache variable
         let cache = match self.cache_dir {
             Some(CacheDir::ExeDir) =>
@@ -109,12 +114,15 @@ impl AcceptorBuilder {
                 rsa
             }
         };
-        PKey::from_rsa(rsa).map_err(AcceptorError::from)
+        let hash = sha256(&rsa.public_key_to_pem()?);
+        Ok((PKey::from_rsa(rsa)?, hash))
     }
+    /// Build a SslAcceptor with the output of `build_pkey`
     pub fn build(self) -> Result<(SslAcceptor, String), AcceptorError> {
-        let pkey = self.build_pkey()?;
-        let hash = hash(&pkey.rsa()?.public_key_to_pem()?);
+        // Generate key
+        let (pkey, hash) = self.build_pkey()?;
 
+        // Generate certificate
         let mut builder = X509::builder()?;
         builder.set_serial_number(&*BigNum::from_u32(1)?.to_asn1_integer()?)?;
         builder.set_not_before(&*Asn1Time::days_from_now(0)?)?;
@@ -131,6 +139,7 @@ impl AcceptorBuilder {
         builder.sign(&pkey, MessageDigest::sha256())?;
         let cert = builder.build();
 
+        // Create acceptor
         let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls())?;
         builder.set_private_key(&pkey)?;
         builder.set_certificate(&cert)?;
@@ -138,8 +147,10 @@ impl AcceptorBuilder {
     }
 }
 
+/// As a client, connect to the server and compare the public key hash with `cmp_hash`
 pub fn connect<S: Read + Write>(connector: &SslConnector, stream: S, cmp_hash: String)
--> Result<SslStream<S>, HandshakeError<S>> {
+    -> Result<SslStream<S>, HandshakeError<S>>
+{
     let mut configure = connector.configure()?
         .use_server_name_indication(false)
         .verify_hostname(false);
@@ -147,7 +158,7 @@ pub fn connect<S: Read + Write>(connector: &SslConnector, stream: S, cmp_hash: S
         if let Some(cert) = cert.current_cert() {
             if let Ok(pkey) = cert.public_key() {
                 if let Ok(pem) = pkey.public_key_to_pem() {
-                    let hash = hash(&pem);
+                    let hash = sha256(&pem);
                     let matches = hash.trim().eq_ignore_ascii_case(&cmp_hash);
                     return matches;
                 }

@@ -4,7 +4,7 @@ description = "SSL without a certificate authority"
 license-file = "LICENSE"
 name = "sslhash"
 repository = "https://github.com/jD91mZM2/sslhash"
-version = "0.1.0"
+version = "0.1.1"
 [dependencies]
 failure = "0.1.1"
 openssl = "0.10.2"
