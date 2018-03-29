@@ -159,8 +159,7 @@ pub fn connect<S: Read + Write>(connector: &SslConnector, stream: S, cmp_hash: S
             if let Ok(pkey) = cert.public_key() {
                 if let Ok(pem) = pkey.public_key_to_pem() {
                     let hash = sha256(&pem);
-                    let matches = hash.trim().eq_ignore_ascii_case(&cmp_hash);
-                    return matches;
+                    return hash.trim().eq_ignore_ascii_case(&cmp_hash)
                 }
             }
         }
